@@ -1,0 +1,9 @@
+services:
+  uptime-alerts:
+    image: gazzati/uptime-alerts:${IMAGE_TAG:-latest}
+    container_name: uptime-alerts
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./services.json:/app/services.json:ro

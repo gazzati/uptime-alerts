@@ -1,0 +1,14 @@
+{
+  "services": [
+    {
+      "name": "Main website",
+      "type": "website",
+      "url": "https://example.com"
+    },
+    {
+      "name": "API server",
+      "type": "server",
+      "url": "http://187.34.212.13/health"
+    }
+  ]
+}
