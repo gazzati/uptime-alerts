@@ -7,6 +7,8 @@ export function getEnvConfig() {
   const checkIntervalMs = toPositiveNumber(process.env.CHECK_INTERVAL_MS, 60_000);
   const requestTimeoutMs = toPositiveNumber(process.env.REQUEST_TIMEOUT_MS, 10_000);
   const certificateWarningDays = toPositiveNumber(process.env.CERTIFICATE_WARNING_DAYS, 10);
+  const serviceFailureThreshold = toPositiveNumber(process.env.SERVICE_FAILURE_THRESHOLD, 2);
+  const serviceRecoveryThreshold = toPositiveNumber(process.env.SERVICE_RECOVERY_THRESHOLD, 2);
   const servicesConfigPath = path.resolve(
     process.cwd(),
     process.env.SERVICES_CONFIG_PATH || "./services.json",
@@ -30,6 +32,8 @@ export function getEnvConfig() {
     checkIntervalMs,
     requestTimeoutMs,
     certificateWarningDays,
+    serviceFailureThreshold,
+    serviceRecoveryThreshold,
   };
 }
 

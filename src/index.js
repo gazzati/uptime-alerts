@@ -17,6 +17,8 @@ async function main() {
     notifier,
     requestTimeoutMs: env.requestTimeoutMs,
     certificateWarningDays: env.certificateWarningDays,
+    serviceFailureThreshold: env.serviceFailureThreshold,
+    serviceRecoveryThreshold: env.serviceRecoveryThreshold,
   });
 
   console.log(`Loaded ${services.length} services from ${env.servicesConfigPath}`);

@@ -1,11 +1,21 @@
 import { checkCertificate } from "./certificate.js";
 
 export class Monitor {
-  constructor({ services, notifier, requestTimeoutMs, certificateWarningDays, logger = console }) {
+  constructor({
+    services,
+    notifier,
+    requestTimeoutMs,
+    certificateWarningDays,
+    serviceFailureThreshold = 2,
+    serviceRecoveryThreshold = 2,
+    logger = console,
+  }) {
     this.services = services;
     this.notifier = notifier;
     this.requestTimeoutMs = requestTimeoutMs;
     this.certificateWarningDays = certificateWarningDays;
+    this.serviceFailureThreshold = serviceFailureThreshold;
+    this.serviceRecoveryThreshold = serviceRecoveryThreshold;
     this.logger = logger;
     this.serviceStates = new Map();
     this.certificateStates = new Map();
@@ -74,66 +84,35 @@ export class Monitor {
   }
 
   async handleServiceState(service, result) {
-    const previous = this.serviceStates.get(service.name);
-    const currentStatus = result.isHealthy ? "healthy" : "unhealthy";
+    const previous = this.serviceStates.get(service.name) || {
+      status: null,
+      healthyStreak: 0,
+      unhealthyStreak: 0,
+    };
+    const next = {
+      status: previous.status,
+      healthyStreak: result.isHealthy ? previous.healthyStreak + 1 : 0,
+      unhealthyStreak: result.isHealthy ? 0 : previous.unhealthyStreak + 1,
+    };
 
-    if (!previous) {
-      this.serviceStates.set(service.name, currentStatus);
-
-      if (!result.isHealthy) {
-        await this.notifier.send(
-          [
-            `🚨 Service is down`,
-            `Name: ${service.name}`,
-            `Type: ${service.type}`,
-            `URL: ${service.url}`,
-            `Error: ${result.error}`,
-            result.statusCode ? `Status: ${result.statusCode}` : null,
-            `Response time: ${result.responseTimeMs}ms`,
-          ]
-            .filter(Boolean)
-            .join("\n"),
-        );
+    if (result.isHealthy) {
+      if (previous.status === "unhealthy" && next.healthyStreak >= this.serviceRecoveryThreshold) {
+        next.status = "healthy";
+        await this.notifier.send(buildServiceRecoveredMessage(service, result));
+      } else if (previous.status === null && next.healthyStreak >= this.serviceRecoveryThreshold) {
+        next.status = "healthy";
       }
-
-      return;
+    } else if (
+      previous.status !== "unhealthy"
+      && next.unhealthyStreak >= this.serviceFailureThreshold
+    ) {
+      next.status = "unhealthy";
+      await this.notifier.send(buildServiceDownMessage(service, result));
     }
 
-    if (previous !== currentStatus) {
-      if (result.isHealthy) {
-        await this.notifier.send(
-          [
-            `✅ Service recovered`,
-            `Name: ${service.name}`,
-            `Type: ${service.type}`,
-            `URL: ${service.url}`,
-            `Status: ${result.statusCode}`,
-            `Response time: ${result.responseTimeMs}ms`,
-          ].join("\n"),
-        );
-      } else {
-        await this.notifier.send(
-          [
-            `🚨 Service is down`,
-            `Name: ${service.name}`,
-            `Type: ${service.type}`,
-            `URL: ${service.url}`,
-            `Error: ${result.error}`,
-            result.statusCode ? `Status: ${result.statusCode}` : null,
-            `Response time: ${result.responseTimeMs}ms`,
-          ]
-            .filter(Boolean)
-            .join("\n"),
-        );
-      }
-
-      this.serviceStates.set(service.name, currentStatus);
-      return;
-    }
-
-    this.serviceStates.set(service.name, currentStatus);
+    this.serviceStates.set(service.name, next);
     this.logger.info(
-      `[service-check] ${service.name}: ${currentStatus} (${result.statusCode ?? result.error})`,
+      `[service-check] ${service.name}: stable=${next.status ?? "unknown"} current=${result.isHealthy ? "healthy" : "unhealthy"} healthyStreak=${next.healthyStreak} unhealthyStreak=${next.unhealthyStreak} (${result.statusCode ?? result.error})`,
     );
   }
 
@@ -142,13 +121,13 @@ export class Monitor {
       return;
     }
 
-    const currentStatus = result.shouldAlert ? "alert" : "ok";
+    const currentStatus = getCertificateStatus(result);
     const previous = this.certificateStates.get(service.name);
 
     if (!previous) {
       this.certificateStates.set(service.name, currentStatus);
 
-      if (currentStatus === "alert") {
+      if (currentStatus !== "ok") {
         await this.notifier.send(buildCertificateAlert(service, result));
       }
 
@@ -159,9 +138,9 @@ export class Monitor {
       return;
     }
 
-    if (currentStatus === "alert") {
+    if (currentStatus !== "ok") {
       await this.notifier.send(buildCertificateAlert(service, result));
-    } else if (previous === "alert") {
+    } else if (shouldSendCertificateResolved(previous)) {
       await this.notifier.send(
         [
           `✅ Certificate issue resolved`,
@@ -214,4 +193,55 @@ function buildCertificateAlert(service, result) {
     `Expires at: ${result.expiresAt.toISOString()}`,
     `Days remaining: ${result.daysRemaining}`,
   ].join("\n");
+}
+
+function buildServiceDownMessage(service, result) {
+  return [
+    `🚨 Service is down`,
+    `Name: ${service.name}`,
+    `Type: ${service.type}`,
+    `URL: ${service.url}`,
+    `Error: ${result.error}`,
+    result.statusCode ? `Status: ${result.statusCode}` : null,
+    `Response time: ${result.responseTimeMs}ms`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function buildServiceRecoveredMessage(service, result) {
+  return [
+    `✅ Service recovered`,
+    `Name: ${service.name}`,
+    `Type: ${service.type}`,
+    `URL: ${service.url}`,
+    `Status: ${result.statusCode}`,
+    `Response time: ${result.responseTimeMs}ms`,
+  ].join("\n");
+}
+
+function getCertificateStatus(result) {
+  if (!result.shouldAlert) {
+    return "ok";
+  }
+
+  if (result.error) {
+    return "check-failed";
+  }
+
+  if (result.authorizationError) {
+    return "tls-error";
+  }
+
+  if (result.isExpired) {
+    return "expired";
+  }
+
+  return "expiring-soon";
+}
+
+function shouldSendCertificateResolved(previousStatus) {
+  return previousStatus === "tls-error"
+    || previousStatus === "expired"
+    || previousStatus === "expiring-soon";
 }
