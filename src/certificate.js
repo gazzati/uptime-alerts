@@ -11,7 +11,7 @@ export async function checkCertificate(urlString, warningDays) {
     };
   }
 
-  const certificateInfo = await getPeerCertificate(url.hostname, Number(url.port) || 443);
+  const certificateInfo = await getPeerCertificateWithRetry(url.hostname, Number(url.port) || 443);
   const expiresAt = new Date(certificateInfo.validTo);
   const msRemaining = expiresAt.getTime() - Date.now();
   const daysRemaining = Math.ceil(msRemaining / (24 * 60 * 60 * 1000));
@@ -28,6 +28,20 @@ export async function checkCertificate(urlString, warningDays) {
     daysRemaining,
     authorizationError: certificateInfo.authorizationError,
   };
+}
+
+async function getPeerCertificateWithRetry(hostname, port, retries = 2) {
+  let lastError;
+
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      return await getPeerCertificate(hostname, port);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError;
 }
 
 function getPeerCertificate(hostname, port) {

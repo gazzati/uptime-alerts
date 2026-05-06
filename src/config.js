@@ -9,6 +9,10 @@ export function getEnvConfig() {
   const certificateWarningDays = toPositiveNumber(process.env.CERTIFICATE_WARNING_DAYS, 10);
   const serviceFailureThreshold = toPositiveNumber(process.env.SERVICE_FAILURE_THRESHOLD, 2);
   const serviceRecoveryThreshold = toPositiveNumber(process.env.SERVICE_RECOVERY_THRESHOLD, 2);
+  const certificateCheckFailureThreshold = toPositiveNumber(
+    process.env.CERTIFICATE_CHECK_FAILURE_THRESHOLD,
+    3,
+  );
   const servicesConfigPath = path.resolve(
     process.cwd(),
     process.env.SERVICES_CONFIG_PATH || "./services.json",
@@ -34,6 +38,7 @@ export function getEnvConfig() {
     certificateWarningDays,
     serviceFailureThreshold,
     serviceRecoveryThreshold,
+    certificateCheckFailureThreshold,
   };
 }
 

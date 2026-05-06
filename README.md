@@ -32,6 +32,7 @@ REQUEST_TIMEOUT_MS=10000
 CERTIFICATE_WARNING_DAYS=10
 SERVICE_FAILURE_THRESHOLD=2
 SERVICE_RECOVERY_THRESHOLD=2
+CERTIFICATE_CHECK_FAILURE_THRESHOLD=3
 ```
 
 ## Формат `services.json`
@@ -109,5 +110,6 @@ docker compose up -d
 - `Service is down` отправляется только после `SERVICE_FAILURE_THRESHOLD` подряд неуспешных проверок;
 - `Service recovered` отправляется только после `SERVICE_RECOVERY_THRESHOLD` подряд успешных проверок после подтвержденного падения;
 - если сертификат истекает меньше чем через `CERTIFICATE_WARNING_DAYS`, приходит предупреждение;
+- `Certificate check failed` отправляется только после `CERTIFICATE_CHECK_FAILURE_THRESHOLD` подряд сбоев TLS-проверки сертификата;
 - временная ошибка проверки сертификата не вызывает `Certificate issue resolved` на первой же успешной проверке;
 - повторные одинаковые уведомления не шлются на каждом цикле.

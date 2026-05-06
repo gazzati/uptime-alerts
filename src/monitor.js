@@ -1,4 +1,5 @@
 import { checkCertificate } from "./certificate.js";
+import { logger as defaultLogger } from "./logger.js";
 
 export class Monitor {
   constructor({
@@ -8,7 +9,8 @@ export class Monitor {
     certificateWarningDays,
     serviceFailureThreshold = 2,
     serviceRecoveryThreshold = 2,
-    logger = console,
+    certificateCheckFailureThreshold = 3,
+    logger = defaultLogger,
   }) {
     this.services = services;
     this.notifier = notifier;
@@ -16,6 +18,7 @@ export class Monitor {
     this.certificateWarningDays = certificateWarningDays;
     this.serviceFailureThreshold = serviceFailureThreshold;
     this.serviceRecoveryThreshold = serviceRecoveryThreshold;
+    this.certificateCheckFailureThreshold = certificateCheckFailureThreshold;
     this.logger = logger;
     this.serviceStates = new Map();
     this.certificateStates = new Map();
@@ -121,26 +124,48 @@ export class Monitor {
       return;
     }
 
-    const currentStatus = getCertificateStatus(result);
-    const previous = this.certificateStates.get(service.name);
+    const previous = this.certificateStates.get(service.name) || {
+      status: null,
+      checkFailureStreak: 0,
+    };
+    const candidateStatus = getCertificateStatus(result);
+    const next = {
+      status: previous.status,
+      checkFailureStreak: candidateStatus === "check-failed" ? previous.checkFailureStreak + 1 : 0,
+    };
 
-    if (!previous) {
-      this.certificateStates.set(service.name, currentStatus);
+    if (candidateStatus === "check-failed") {
+      if (next.checkFailureStreak < this.certificateCheckFailureThreshold) {
+        this.certificateStates.set(service.name, next);
+        this.logger.warn(
+          `[certificate-check] ${service.name}: transient failure ${next.checkFailureStreak}/${this.certificateCheckFailureThreshold} (${result.error})`,
+        );
+        return;
+      }
 
-      if (currentStatus !== "ok") {
+      next.status = "check-failed";
+    } else {
+      next.status = candidateStatus;
+    }
+
+    if (previous.status === null) {
+      this.certificateStates.set(service.name, next);
+
+      if (next.status !== "ok") {
         await this.notifier.send(buildCertificateAlert(service, result));
       }
 
       return;
     }
 
-    if (previous === currentStatus) {
+    if (previous.status === next.status) {
+      this.certificateStates.set(service.name, next);
       return;
     }
 
-    if (currentStatus !== "ok") {
+    if (next.status !== "ok") {
       await this.notifier.send(buildCertificateAlert(service, result));
-    } else if (shouldSendCertificateResolved(previous)) {
+    } else if (shouldSendCertificateResolved(previous.status)) {
       await this.notifier.send(
         [
           `✅ Certificate issue resolved`,
@@ -152,7 +177,7 @@ export class Monitor {
       );
     }
 
-    this.certificateStates.set(service.name, currentStatus);
+    this.certificateStates.set(service.name, next);
   }
 }
 
